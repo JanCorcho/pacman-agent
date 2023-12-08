@@ -22,6 +22,8 @@ class AStarOfTheShow(CaptureAgent):
         Attack = 0
         Defend = 1
         Retreat = 2
+        Cutpath = 3
+        Capsule = 4
 
     def __init__(self, index, time_for_computing=.1):
         super().__init__(index, time_for_computing)
@@ -37,6 +39,8 @@ class AStarOfTheShow(CaptureAgent):
         self.height_half = self.height/2
         self.safe_zone = self.safe_zone_limit(game_state)
         self.mode = self.Mode.Attack
+        self.initial_time = game_state.data.timeleft
+        self.maxHeld = 4
         
 
     def food_in_state(self,game_state):
@@ -44,21 +48,49 @@ class AStarOfTheShow(CaptureAgent):
     
     def DecisionTree(self,game_state):
         Agent2 = self.get_team(game_state)[0]
+        Agent2_state = game_state.get_agent_state(Agent2)
         Agent1 = self.get_team(game_state)[1]
+        Agent1_state = game_state.get_agent_state(Agent1)
         carring = game_state.get_agent_state(self.index).num_carrying
+        defending = self.allies_defending(game_state)
+        invaders = self.invaders_present(game_state)
+        if Agent1 == self.index:
 
-        if carring  > 3:
-            return self.Mode.Retreat
+            if (self.initial_time-game_state.data.timeleft) < 150:        
+                return self.Mode.Retreat
+            
+            if Agent1_state.scared_timer == 0:        
+                return self.Mode.Defend
+            
+            if  Agent1_state.scared_timer > 0 :
+                return self.Mode.Attack
+            
+
         
-        if not self.invaders_present(game_state):
+        if Agent2 == self.index:
+            
+            if carring  > self.maxHeld  and self.scared_time_remaining(game_state) < 10 or (game_state.data.timeleft < 200 and carring > 1):
+                return self.Mode.Retreat
+            
+            capsules = self.get_capsules(game_state)
+
+            if capsules:
+                return self.Mode.Capsule
+
+            if self.scared_time_remaining(game_state) > 10:
+                return self.Mode.Attack
+
+            if not self.allies_defending(game_state) and self.invaders_present(game_state):
+                return self.Mode.Defend
+            
+            if self.food_in_state(game_state)+3 < len(self.get_food_you_are_defending(game_state).as_list()):
+                return self.Mode.Defend
+
             return self.Mode.Attack
 
-        if self.food_in_state(game_state)+1 < len(self.get_food_you_are_defending(game_state).as_list()):
-            return self.Mode.Defend
-        if not self.allies_defending(game_state) and self.invaders_present(game_state) and self.index == Agent1:
-            return self.Mode.Defend
+
         
-        return self.mode    
+        return self.mode  #default: keep doing your thing  
     
     def invaders_present(self, game_state):
         enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
@@ -73,9 +105,11 @@ class AStarOfTheShow(CaptureAgent):
         if self.mode == self.Mode.Retreat:
             scores = [self.heuristic_get_home(game_state, action) for action in legalMoves]
         if self.mode == self.Mode.Attack:  
-            scores = [self.evaluationFunction(game_state, action) for action in legalMoves]
+            scores = [self.close_food_heuristic(game_state, action) for action in legalMoves]
         if self.mode == self.Mode.Defend:
             scores = [self.heuristic_defend(game_state, action) for action in legalMoves]
+        if self.mode == self.Mode.Capsule:
+            scores = [self.heuristic_get_capsule(game_state, action) for action in legalMoves]
         
         bestScore = max(scores)
         bestIndices = [index for index in range(len(scores)) if scores[index] == bestScore]
@@ -98,55 +132,57 @@ class AStarOfTheShow(CaptureAgent):
         min_distance = min(distances)
         min_index = distances.index(min_distance)
         return min_distance, min_index
+    def min_distance_from_list(self, lst, position):
+        distances = [self.get_maze_distance(position, element) for element in lst]
+        min_distance = min(distances)
+        min_index = distances.index(min_distance)
+        return min_distance, min_index
     
-    def evaluationFunction(self, game_state, action):
     
-        
-        # Useful information you can extract from a GameState (pacman.py)
+    def close_food_heuristic(self, game_state, action):
         my_score = 0
-        successor = self.get_successor(game_state,action) 
+        successor = self.get_successor(game_state, action)
         my_state = successor.get_agent_state(self.index)
         position = my_state.get_position()
         newFood = self.get_food(successor).as_list()
         oldFood = self.get_food(game_state).as_list()
         
-
         old_my_state = game_state.get_agent_state(self.index)
         oldPos = old_my_state.get_position()
         
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
         ghost_distance = [self.get_maze_distance(position, ghost.get_position()) for ghost in ghosts]
-        foodDistance = self.min_distance_from_list(newFood,position)
-        foodDistanceOld = self.min_distance_from_list(oldFood,oldPos)
+        foodDistance = self.min_distance_from_list(newFood, position)
+        foodDistanceOld = self.min_distance_from_list(oldFood, oldPos)
 
-        for element in ghost_distance:
-            my_score += 0.5 * pow(element, 1.5)
-            if element < 2:
-                my_score -= 10000
+        if len(foodDistance) > 0:
 
-        if foodDistance < foodDistanceOld:
-                my_score += 2000
+            if foodDistance < foodDistanceOld:
+                my_score += 1000  
+            else:
+                my_score -= 100 
+        if self.scared_time_remaining(game_state) < 5:
+            for element in ghost_distance:
+                if element < 2:
+                    my_score -= 5000  
+                else:
+                    my_score -=  2*pow(element, 5)  
+        return my_score
 
-        for element in ghost_distance:
-            my_score += 0.5*pow(element,1.5)
-            if(element < 2):
-                my_score -= 10000
-        return successor.get_score() + my_score
         
     def heuristic_get_home(self, game_state,action):
         successor = self.get_successor(game_state,action) 
         my_state = successor.get_agent_state(self.index)
         position = my_state.get_position()
         my_score = 0.0
-        # Calculate distance to home base or starting position
+
         distance_to_home = self.min_distance_from_list(self.safe_zone,position)
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
         ghost_distance = [self.get_maze_distance(position, ghost.get_position()) for ghost in ghosts]
 
         for element in ghost_distance:
-            my_score += 0.5*pow(element,1.5)
             if(element < 2):
                 my_score -= 10000
         return my_score-distance_to_home[0]  
@@ -160,12 +196,12 @@ class AStarOfTheShow(CaptureAgent):
             i = self.width_half + 1
         limit = [(i,float(j)) for j in  range(self.height)]
         for i in limit:
-
             if not game_state.data.layout.walls[int(i[0])][int(i[1])]:
                 no_walls.append(i)
         return no_walls
+    
     def heuristic_defend(self, game_state, action):
-        successor = game_state
+        successor = self.get_successor(game_state,action) 
         my_state = successor.get_agent_state(self.index)
         position = my_state.get_position()
         my_score = 0.0
@@ -173,30 +209,55 @@ class AStarOfTheShow(CaptureAgent):
         # Evaluate the distance to invaders (enemy Pac-Man)
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         invaders = [enemy for enemy in enemies if enemy.is_pacman and enemy.get_position() is not None]
-        if invaders:
+        if invaders: 
             invader_positions = [invader.get_position() for invader in invaders]
             closest_invader_distance = self.min_distance_from_list(invader_positions, position)[0]
-            print(invader_positions)
-            print(position)
 
-            # Encourage the agent to chase the closest invader
-            my_score -= closest_invader_distance  # Positive score to chase invaders
-
-        # Evaluate cutting off access to the closest food
-        #    food = self.get_food_you_are_defending(successor).as_list()
-         #   closest_food = self.min_distance_from_list(food, position)[0]
-          #  if closest_food is not None:
-                # Encourage cutting off access to the closest food
-           #     my_score += 50 - closest_food  # Positive score to block access to food
-
-            return my_score
+                # Encourage the agent to chase the closest invader
+            my_score -= pow(closest_invader_distance,10)  # Positive score to chase invaders
+        if position[0] < self.width_half:
+            my_score += 10
+        return my_score
 
 
+    def heuristic_get_capsule(self, game_state, action):
+        successor = self.get_successor(game_state, action)
+        my_state = successor.get_agent_state(self.index)
+        position = my_state.get_position()
+        my_score = 100.0
+
+        capsules = self.get_capsules(successor)
+        if capsules:
+            capsule_positions = capsules
+            closest_capsule_distance = self.min_distance_from_list(capsule_positions, position)[0]
+
+            my_score -= closest_capsule_distance 
+
+        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
+        ghost_distance = [self.get_maze_distance(position, ghost.get_position()) for ghost in ghosts]
+
+        for distance in ghost_distance:
+            if distance < 2:  # If ghost is close, discourage going towards the capsule
+                my_score -= 10000  # Set a high penalty to avoid ghosts
+
+        return my_score
 
 
+
+    def invaders_present(self, game_state):
+        enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
+        invaders = [enemy for enemy in enemies if enemy.is_pacman]
+        return len(invaders) > 0
+    
+    def scared_time_remaining(self, game_state):
+        enemies = [game_state.get_agent_state(i) for i in self.get_opponents(game_state)]
+        scared_times = [enemy.scared_timer for enemy in enemies if not enemy.is_pacman and enemy.scared_timer > 0]
+        return max(scared_times) if scared_times else 0    
+    
     def allies_defending(self, game_state):
-        allies_positions = [game_state.get_agent_position(index) for index in self.get_team(game_state)]
-        allies_defending = [pos for pos in allies_positions if pos[0] < self.width_half]
+        allies = [game_state.get_agent_state(i) for i in self.get_team(game_state)]
+        allies_defending = [ally for ally in allies if not ally.is_pacman and ally.get_position() is not None]
         return len(allies_defending) > 1
     
     
