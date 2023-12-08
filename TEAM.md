@@ -15,8 +15,8 @@
 * 242320 - Jan Corcho - jan.corcho01@estudiant.upf.edu - JanCorcho
 
 **About our agent**
-We've developed an agent that utilizes heuristic search similar to A*, the heuristic function 
-changes according to a decision tree containing 4 modes: reatrea,atack,atack_capsule and defense.
-Depending on wich agent you are the behavior changes, one being more defensive than the other. 
+We've developed an agent that utilizes heuristic search similar to A*, the heuristic function
+changes according to a decision tree containing 4 modes: retreat,attack,attack_capsule and defense.
+Depending on which agent you are, the behavior changes, one being more defensive than the other.
 
-The heuristic function we've used are not guaranteed to be admissible or consistant as they try to adapt to other conditions rather than estimating the cost of a fix action.
+The heuristic function we've used are not guaranteed to be admissible or consistent as they try to adapt to other conditions rather than estimating the cost of a fix action.
